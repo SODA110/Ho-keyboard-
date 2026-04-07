@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      // 🚀 ADD THIS LINE HERE:
+      // This tells Vite your app is in the /Ho-keyboard-/ folder on GitHub
       base: '/Ho-keyboard-/', 
       
       server: {
