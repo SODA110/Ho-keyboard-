@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+    <title>Warang Citi Virtual Keyboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Noto+Sans+Warang+Citi&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap" rel="stylesheet">
+    <style>
+      /* --- GLOBAL STYLES --- */
+      body {
+          background: linear-gradient(135deg, #f0f4f8 0%, #d9e2ec 100%);
+          color: #1f2937;
+          font-family: 'Inter', sans-serif;
+      }
+
+      .warang-citi-text, .warang-citi-char {
+          font-family: 'Noto Sans Warang Citi', monospace, sans-serif !important; 
+          font-weight: 500; 
+      }
+
+      /* --- KEYBOARD CONTAINER --- */
+      #keyboard {
+          background: linear-gradient(45deg, #374151 0%, #1f2937 100%);
+          padding: 8px; 
+          border-radius: 0.75rem;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+      }
+      
+      .keyboard-row {
+          display: flex;
+          gap: 4px;
+      }
+
+      /* --- KEY STYLING --- */
+      .key-button {
+          transition: all 0.1s ease-out;
+          box-shadow: 0 4px 0 0 #9ca3af; 
+          height: 52px;
+          font-size: 1.0rem;
+          display: grid; /* Use Grid for robust centering */
+          place-items: center; /* Center content perfectly */
+          padding: 0 4px; 
+          background-color: #f9fafb; 
+          border: 1px solid rgba(209, 213, 219, 0.5);
+          color: #1f2937 !important; 
+          flex-shrink: 1;
+          min-width: 0;
+          overflow: hidden; /* Prevent content from spilling out */
+      }
+
+      .key-button:active {
+          box-shadow: 0 2px 0 0 #9ca3af;
+          transform: translateY(2px);
+      }
+
+      .key-pressed {
+          background-color: #fecaca !important; 
+          box-shadow: 0 2px 0 0 #ef4444 !important; 
+          transform: translateY(2px);
+      }
+
+      /* Responsive sizing */
+      .flex-1-2 { flex: 1.2; } 
+      .flex-1-5 { flex: 1.5; } 
+      .flex-1-8 { flex: 1.8; }
+      .space-key { flex: 5; } 
+      .shift-key { flex: 2.2; } 
+      .caps-key { flex: 1.8; }
+      .enter-key { flex: 1.5; }
+
+      /* Function keys */
+      .fn-key {
+          background-color: #3b82f6 !important; 
+          color: white;
+          box-shadow: 0 4px 0 0 #2563eb;
+          font-size: 1.25rem;
+          font-weight: 700;
+      }
+
+      .fn-active {
+          background-color: #ef4444 !important; 
+          box-shadow: 0 2px 0 0 #b91c1c;
+          transform: translateY(2px);
+      }
+
+      /* Emoji button */
+      .emoji-key {
+        background-color: #facc15 !important; /* yellow-400 */
+        color: #1f2937 !important;
+        box-shadow: 0 4px 0 0 #eab308; /* yellow-500 */
+      }
+
+      /* Text area */
+      #text-input {
+          min-height: 200px;
+          font-size: 1.5rem;
+          line-height: 1.8;
+          padding: 20px;
+          border-color: #d1d5db;
+      }
+      
+      .key-emoji-char {
+        font-family: 'Noto Color Emoji';
+        font-size: 1.6rem; /* Slightly reduced for better fit */
+        line-height: 1;
+        /* Helps ensure complex emojis are treated as a single, non-breaking unit */
+        white-space: nowrap;
+      }
+
+      .warang-citi-char {
+          font-size: 1.6rem; 
+          line-height: 1;
+      }
+
+      .english-char {
+          font-family: 'Inter', sans-serif;
+          font-weight: 500;
+          font-size: 1.25rem;
+          line-height: 1;
+      }
+      
+      /* --- KEY PREVIEW --- */
+      .key-preview {
+          position: fixed; /* Use fixed so it's relative to the viewport */
+          z-index: 1000;
+          background-color: #ffffff;
+          border-radius: 0.5rem;
+          box-shadow: 0 5px 15px rgba(0, 0, 0, 0.25);
+          padding: 0.75rem 1.25rem;
+          transform: translate(-50%, calc(-100% - 10px)); /* Position above the key */
+          pointer-events: none; /* Let clicks pass through */
+          opacity: 0;
+          transition: opacity 0.05s ease-in;
+          will-change: opacity;
+      }
+
+      .key-preview.visible {
+        opacity: 1;
+      }
+
+      .key-preview .warang-citi-char {
+          font-size: 3rem;
+          line-height: 1;
+      }
+      .key-preview .key-emoji-char {
+          font-size: 3rem;
+          line-height: 1;
+      }
+      .key-preview .english-char {
+          font-size: 2.5rem;
+          line-height: 1;
+      }
+      
+      /* --- DARK MODE STYLES --- */
+      .dark body {
+          background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+          color: #d1d5db; /* gray-300 */
+      }
+      
+      .dark .key-preview {
+        background-color: #374151; /* gray-700 */
+        color: #f9fafb; /* gray-50 */
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+      }
+
+      .dark h1 {
+          color: #f9fafb; /* gray-50 */
+      }
+
+      .dark p {
+          color: #9ca3af; /* gray-400 */
+      }
+
+      .dark #text-input {
+          background-color: #374151; /* gray-700 */
+          color: #f9fafb; /* gray-50 */
+          border-color: #4b5563; /* gray-600 */
+      }
+
+      .dark #text-input::placeholder {
+          color: #6b7280; /* gray-500 */
+      }
+
+
+      .dark #keyboard {
+          background: linear-gradient(45deg, #111827 0%, #000000 100%);
+      }
+
+      .dark .key-button {
+          background-color: #4b5563; /* gray-600 */
+          color: #f3f4f6 !important; /* gray-100 */
+          box-shadow: 0 4px 0 0 #1f2937; /* gray-800 */
+          border-color: rgba(107, 114, 128, 0.5); /* gray-500 */
+      }
+
+      .dark .key-button:active {
+          box-shadow: 0 2px 0 0 #1f2937; /* gray-800 */
+      }
+
+      .dark .key-pressed {
+          background-color: #991b1b !important; /* red-800 */
+          box-shadow: 0 2px 0 0 #450a0a !important; /* red-950 */
+      }
+
+      .dark .fn-key {
+          background-color: #1d4ed8 !important; /* blue-700 */
+          box-shadow: 0 4px 0 0 #1e3a8a; /* blue-900 */
+      }
+
+      .dark .fn-active {
+          background-color: #b91c1c !important; /* red-700 */
+          box-shadow: 0 2px 0 0 #7f1d1d; /* red-900 */
+      }
+
+      .dark .emoji-key {
+          background-color: #ca8a04 !important; /* yellow-600 */
+          color: #f9fafb !important;
+          box-shadow: 0 4px 0 0 #854d0e; /* yellow-800 */
+      }
+
+      /* --- RESPONSIVE STYLES FOR MOBILE --- */
+      @media (max-width: 768px) {
+        body {
+          padding: 0.5rem;
+        }
+
+        .main-container {
+          padding: 0;
+        }
+
+        h1 {
+          font-size: 1.75rem !important; /* Tailwind text-3xl */
+          margin-bottom: 0.25rem !important;
+        }
+
+        p {
+          font-size: 0.875rem !important; /* Tailwind text-sm */
+          margin-bottom: 1rem !important;
+        }
+
+        #text-input {
+          min-height: 150px;
+          font-size: 1.25rem;
+          padding: 12px;
+        }
+        
+        #keyboard {
+          padding: 4px;
+          border-radius: 0.5rem;
+          height: 240px;
+        }
+
+        .key-button {
+          height: 44px;
+          font-size: 0.8rem;
+          box-shadow: 0 3px 0 0 #9ca3af;
+        }
+        
+        .key-button:active {
+          box-shadow: 0 1px 0 0 #9ca3af;
+          transform: translateY(2px);
+        }
+
+        .key-pressed {
+          box-shadow: 0 1px 0 0 #ef4444 !important;
+          transform: translateY(2px);
+        }
+        
+        .warang-citi-char {
+          font-size: 1.25rem;
+        }
+
+        .english-char {
+          font-size: 1rem;
+        }
+
+        .fn-key {
+          font-size: 1rem !important;
+          box-shadow: 0 3px 0 0 #2563eb;
+        }
+        
+        .key-emoji-char {
+          font-size: 1.2rem; /* Slightly reduced for better fit on mobile */
+        }
+
+        .fn-active {
+          box-shadow: 0 1px 0 0 #b91c1c;
+          transform: translateY(2px);
+        }
+
+        .keyboard-row {
+          gap: 2px; /* Instead of space-x */
+        }
+      }
+    </style>
+
+<link rel="stylesheet" href="/index.css">
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/assets/index-Dhmg7XAL.js"></script>
+</head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+</body>
+</html>
