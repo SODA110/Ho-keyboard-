@@ -1,5 +1,5 @@
 // This application is fully client-side and does not require any API key for its functionality.
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { keyboardLayout, englishKeyboardLayout, specialCharsLayout, KeyData, emojiMap, hoCharacters } from './constants/keyboardLayout';
 
 const App: React.FC = () => {
@@ -13,6 +13,7 @@ const App: React.FC = () => {
   const [specialChar, setSpecialChar] = useState<string>(hoCharacters[0]);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [preview, setPreview] = useState<{ char: string; top: number; left: number; isEmoji: boolean; } | null>(null);
+  const [inputMode, setInputMode] = useState<'text' | 'none'>('text');
 
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -22,6 +23,22 @@ const App: React.FC = () => {
 
   const baseLayout = keyboardMode === 'warang' ? keyboardLayout : englishKeyboardLayout;
   const currentLayout = keyboardView === 'special' ? specialCharsLayout : baseLayout;
+
+  // Create a map for mobile typing (English -> Ho)
+  const charMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    const flatHo = keyboardLayout.flat();
+    const flatEng = englishKeyboardLayout.flat();
+    
+    flatHo.forEach(hoKey => {
+      const engKey = flatEng.find(k => k.code === hoKey.code);
+      if (engKey) {
+        if (engKey.key) map[engKey.key] = hoKey.key;
+        if (engKey.shiftKey) map[engKey.shiftKey] = hoKey.shiftKey;
+      }
+    });
+    return map;
+  }, []);
 
   const updateText = useCallback((operation: 'insert' | 'delete', value: string = '') => {
     const textarea = textAreaRef.current;
@@ -117,7 +134,6 @@ const App: React.FC = () => {
             const randomIndex = Math.floor(Math.random() * hoCharacters.length);
             setSpecialChar(hoCharacters[randomIndex]);
           }
-          // Reset shift state when switching to/from special chars
           setIsShiftOn(false);
           return newView;
         });
@@ -130,7 +146,6 @@ const App: React.FC = () => {
         if (keyboardView === 'special') {
           charToInsert = isShiftOn ? key.shiftKey : key.key;
         } else {
-          // Always output Ho characters when in text view, even in English mode
           const hoKey = keyboardLayout.flat().find(k => k.code === key.code);
           if (hoKey) {
             const showShifted = isShiftOn === isCapsLockOn;
@@ -150,22 +165,40 @@ const App: React.FC = () => {
     }
   }, [isShiftOn, isCapsLockOn, pressedKeys, keyboardView, updateText]);
 
+  // Handle mobile typing (intercept English and convert to Ho)
+  const handleBeforeInput = useCallback((e: any) => {
+    if (keyboardMode !== 'warang' || keyboardView !== 'text') return;
+
+    if (e.inputType === 'insertText' && e.data) {
+      const data = e.data;
+      let transformed = '';
+      
+      for (const char of data) {
+        transformed += charMap[char] || char;
+      }
+
+      if (transformed !== data) {
+        e.preventDefault();
+        updateText('insert', transformed);
+      }
+    }
+  }, [keyboardMode, keyboardView, charMap, updateText]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isTextInputFocused = document.activeElement === textAreaRef.current;
       
-      // Allow standard shortcuts (Ctrl+A, Ctrl+C, Ctrl+V, etc.)
       if (e.ctrlKey || e.metaKey) {
         return; 
       }
 
-      if(e.code === 'Backspace'){ // Always allow backspace
+      if(e.code === 'Backspace'){
             e.preventDefault();
             handleKeyPress({ key: '⌫', shiftKey: '⌫', code: 'Backspace' });
             return;
       }
        if(e.code === 'Enter' && isTextInputFocused) {
-            return; // Allow native enter in textarea
+            return;
        }
        if (e.code === 'Enter' && !isTextInputFocused) {
             e.preventDefault();
@@ -175,6 +208,12 @@ const App: React.FC = () => {
 
       const keyData = currentLayout.flat().find((k) => k.code === e.code);
       if (!keyData || ['special', 'emoji'].includes(keyboardView)) {
+        return;
+      }
+
+      // If textarea is focused, let character keys pass through to beforeinput (better for mobile)
+      if (isTextInputFocused && !['ShiftLeft', 'ShiftRight', 'CapsLock', 'Tab', 'Space'].includes(e.code)) {
+        setPressedKeys((prev) => new Set(prev).add(e.code));
         return;
       }
 
@@ -243,7 +282,6 @@ const App: React.FC = () => {
       }
   };
 
-
   const handleShowPreview = (key: KeyData, event: React.MouseEvent<HTMLButtonElement> | React.TouchEvent<HTMLButtonElement>) => {
     if (key.isFnKey || key.code === 'Space') return;
     
@@ -254,7 +292,6 @@ const App: React.FC = () => {
     } else if (keyboardView === 'special') {
         char = isShiftOn ? key.shiftKey : key.key;
     } else {
-        // Always preview Ho characters when in text view
         const hoKey = keyboardLayout.flat().find(k => k.code === key.code);
         if (hoKey) {
           const showShifted = isShiftOn === isCapsLockOn;
@@ -285,7 +322,6 @@ const App: React.FC = () => {
     setPreview(null);
   };
 
-
   return (
     <div className={`min-h-screen flex flex-col items-center justify-center p-2 md:p-4 ${darkMode ? 'dark' : ''}`}>
        {preview && (
@@ -300,13 +336,28 @@ const App: React.FC = () => {
       )}
       <div className="w-full max-w-4xl mx-auto main-container">
         <h1 className="text-4xl font-bold text-center text-gray-800 mb-2">Warang Citi Virtual Keyboard</h1>
-        <p className="text-center text-gray-600 mb-6 md:mb-8">Type using your physical keyboard or click the keys below.</p>
+        
+        <div className="flex justify-between items-center mb-4 px-1">
+          <p className="text-gray-600 text-sm md:text-base">Type using your keyboard or click the keys below.</p>
+          <button 
+            onClick={() => setInputMode(prev => prev === 'text' ? 'none' : 'text')}
+            className={`p-2 rounded-lg transition-all shadow-sm flex items-center gap-2 ${inputMode === 'text' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'}`}
+            title={inputMode === 'text' ? 'Hide Native Keyboard' : 'Show Native Keyboard'}
+          >
+            <span className="text-lg">⌨️</span>
+            <span className="hidden md:inline text-xs font-bold uppercase tracking-wider">
+              {inputMode === 'text' ? 'Native ON' : 'Native OFF'}
+            </span>
+          </button>
+        </div>
         
         <textarea
           id="text-input"
           ref={textAreaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onBeforeInput={handleBeforeInput}
+          inputMode={inputMode}
           className="w-full bg-white rounded-lg shadow-inner mb-4 warang-citi-text"
           placeholder="Start typing in Ho..."
         />
@@ -336,17 +387,12 @@ const App: React.FC = () => {
                 } else if (keyboardView === 'special') {
                   displayChar = isShiftOn ? key.shiftKey : key.key;
                 } else if (keyboardMode === 'warang') {
-                  // Per user request, the display logic is inverted from the typing logic.
-                  // When caps lock is off, display the "shifted" characters.
-                  // When caps lock is on, display the "base" characters.
-                  // The shift key inverts the current display.
                   const showShifted = isShiftOn === isCapsLockOn;
                   displayChar = (showShifted && !key.isFnKey) ? key.shiftKey : key.key;
-                } else { // keyboardMode === 'english'
+                } else {
                   const isLetter = key.key.length === 1 && key.key.toLowerCase() !== key.key.toUpperCase();
-                  let showUpperCase = isShiftOn; // Default for non-letter keys
+                  let showUpperCase = isShiftOn;
                   if (isLetter) {
-                    // Standard behavior: Caps Lock ON shows uppercase.
                     showUpperCase = isCapsLockOn !== isShiftOn;
                   }
                   displayChar = (showUpperCase && !key.isFnKey) ? key.shiftKey : key.key;
