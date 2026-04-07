@@ -24,7 +24,7 @@ const App: React.FC = () => {
   const baseLayout = keyboardMode === 'warang' ? keyboardLayout : englishKeyboardLayout;
   const currentLayout = keyboardView === 'special' ? specialCharsLayout : baseLayout;
 
-  // Create a map for mobile typing (English -> Ho)
+  // Create a robust map for English -> Ho conversion
   const charMap = useMemo(() => {
     const map: Record<string, string> = {};
     const flatHo = keyboardLayout.flat();
@@ -33,30 +33,43 @@ const App: React.FC = () => {
     flatHo.forEach(hoKey => {
       const engKey = flatEng.find(k => k.code === hoKey.code);
       if (engKey) {
-        if (engKey.key) map[engKey.key] = hoKey.key;
-        if (engKey.shiftKey) map[engKey.shiftKey] = hoKey.shiftKey;
+        if (engKey.key && hoKey.key) map[engKey.key] = hoKey.key;
+        if (engKey.shiftKey && hoKey.shiftKey) map[engKey.shiftKey] = hoKey.shiftKey;
       }
     });
+    // Common punctuation
+    map['.'] = '𑣿';
     return map;
   }, []);
+
+  // Helper to transform any string to Ho based on current mode
+  const transformToHo = useCallback((input: string) => {
+    if (keyboardMode !== 'warang' || keyboardView !== 'text') return input;
+    let result = '';
+    for (const char of input) {
+      result += charMap[char] || char;
+    }
+    return result;
+  }, [keyboardMode, keyboardView, charMap]);
 
   const updateText = useCallback((operation: 'insert' | 'delete', value: string = '') => {
     const textarea = textAreaRef.current;
     if (!textarea) {
-      if (operation === 'insert') setText(prev => prev + value);
+      if (operation === 'insert') setText(prev => prev + transformToHo(value));
       return;
     }
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
+    const start = textarea.selectionStart || 0;
+    const end = textarea.selectionEnd || 0;
     const currentText = textarea.value;
 
     let newText = '';
     let newCursorPos = start;
 
     if (operation === 'insert') {
-      newText = currentText.substring(0, start) + value + currentText.substring(end);
-      newCursorPos = start + value.length;
+      const transformedValue = transformToHo(value);
+      newText = currentText.substring(0, start) + transformedValue + currentText.substring(end);
+      newCursorPos = start + transformedValue.length;
     } else if (operation === 'delete') {
       if (start !== end) {
         newText = currentText.substring(0, start) + currentText.substring(end);
@@ -73,13 +86,12 @@ const App: React.FC = () => {
 
     setText(newText);
     
-    requestAnimationFrame(() => {
+    setTimeout(() => {
       if (textAreaRef.current) {
-        textAreaRef.current.focus();
         textAreaRef.current.setSelectionRange(newCursorPos, newCursorPos);
       }
-    });
-  }, []);
+    }, 0);
+  }, [transformToHo]);
 
   const handleKeyPress = useCallback((key: KeyData) => {
     if (!key || !key.key) return;
@@ -128,12 +140,8 @@ const App: React.FC = () => {
           charToInsert = isShiftOn ? key.shiftKey : key.key;
         } else {
           const hoKey = keyboardLayout.flat().find(k => k.code === key.code);
-          if (hoKey) {
-            const showShifted = isShiftOn === isCapsLockOn;
-            charToInsert = showShifted ? hoKey.shiftKey : hoKey.key;
-          } else {
-            charToInsert = isShiftOn ? key.shiftKey : key.key;
-          }
+          const showShifted = isShiftOn === isCapsLockOn;
+          charToInsert = hoKey ? (showShifted ? hoKey.shiftKey : hoKey.key) : (isShiftOn ? key.shiftKey : key.key);
         }
         updateText('insert', charToInsert);
         if (isShiftOn && !pressedKeys.has('ShiftLeft') && !pressedKeys.has('ShiftRight') && keyboardView !== 'special') {
@@ -143,23 +151,34 @@ const App: React.FC = () => {
     }
   }, [isShiftOn, isCapsLockOn, pressedKeys, keyboardView, updateText]);
 
-  // Handle mobile typing (English -> Ho conversion)
-  const handleBeforeInput = useCallback((e: any) => {
+  // Aggressive interceptor for mobile native keyboard
+  const handleBeforeInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
+    const inputEvent = e.nativeEvent as InputEvent;
     if (keyboardMode !== 'warang' || keyboardView !== 'text') return;
 
-    if (e.inputType === 'insertText' && e.data) {
-      const data = e.data;
-      let transformed = '';
-      for (const char of data) {
-        transformed += charMap[char] || char;
-      }
+    if (inputEvent.data && (inputEvent.inputType === 'insertText' || inputEvent.inputType === 'insertCompositionText')) {
+      e.preventDefault();
+      updateText('insert', inputEvent.data);
+    }
+  }, [keyboardMode, keyboardView, updateText]);
 
-      if (transformed !== data) {
-        e.preventDefault();
-        updateText('insert', transformed);
+  // Safety Net: If any English characters leak in, convert them immediately
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    if (keyboardMode === 'warang' && keyboardView === 'text') {
+      const transformed = transformToHo(val);
+      if (transformed !== val) {
+        const start = e.target.selectionStart;
+        const end = e.target.selectionEnd;
+        setText(transformed);
+        setTimeout(() => {
+          if (textAreaRef.current) textAreaRef.current.setSelectionRange(start, end);
+        }, 0);
+        return;
       }
     }
-  }, [keyboardMode, keyboardView, charMap, updateText]);
+    setText(val);
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -173,20 +192,20 @@ const App: React.FC = () => {
       }
 
       const keyData = currentLayout.flat().find((k) => k.code === e.code);
-      if (!keyData || ['special', 'emoji'].includes(keyboardView)) return;
-
-      if (isTextInputFocused && !['ShiftLeft', 'ShiftRight', 'CapsLock', 'Tab', 'Space', 'Enter'].includes(e.code)) {
-        setPressedKeys((prev) => new Set(prev).add(e.code));
-        return;
+      
+      // On desktop, prevent default to avoid English letters appearing before transformation
+      if (isTextInputFocused && e.code && !['ShiftLeft', 'ShiftRight', 'CapsLock', 'Tab', 'Space', 'Enter'].includes(e.code)) {
+        if (keyboardMode === 'warang' && keyboardView === 'text') {
+          e.preventDefault();
+          if (keyData) handleKeyPress(keyData);
+        }
       }
 
-      e.preventDefault();
+      if (!keyData) return;
       setPressedKeys((prev) => new Set(prev).add(e.code));
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
         setIsShiftOn(true);
-        return; 
       }
-      handleKeyPress(keyData);
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -204,37 +223,7 @@ const App: React.FC = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [handleKeyPress, currentLayout, keyboardView]);
-
-  const handleEmojiPressStart = () => {
-    ignoreClick.current = false;
-    longPressTimer.current = setTimeout(() => {
-        setDarkMode(prev => !prev);
-        ignoreClick.current = true;
-    }, 2000);
-  };
-
-  const handleEmojiPressEnd = () => {
-    if (longPressTimer.current) {
-        clearTimeout(longPressTimer.current);
-        longPressTimer.current = null;
-    }
-  };
-
-  const handleSpacebarPressStart = () => {
-    ignoreSpacebarClick.current = false;
-    spacebarLongPressTimer.current = setTimeout(() => {
-        setKeyboardMode(prev => (prev === 'warang' ? 'english' : 'warang'));
-        ignoreSpacebarClick.current = true;
-    }, 2000);
-  };
-
-  const handleSpacebarPressEnd = () => {
-      if (spacebarLongPressTimer.current) {
-          clearTimeout(spacebarLongPressTimer.current);
-          spacebarLongPressTimer.current = null;
-      }
-  };
+  }, [handleKeyPress, currentLayout, keyboardMode, keyboardView]);
 
   const handleShowPreview = (key: KeyData, event: any) => {
     if (key.isFnKey || key.code === 'Space') return;
@@ -248,18 +237,11 @@ const App: React.FC = () => {
       const showShifted = isShiftOn === isCapsLockOn;
       char = hoKey ? (showShifted ? hoKey.shiftKey : hoKey.key) : (isShiftOn ? key.shiftKey : key.key);
     }
-
     const unicodeEmoji = (keyboardView === 'emoji' && !key.isFnKey) ? emojiMap[char] : null;
     const previewChar = unicodeEmoji || char;
     if (!previewChar.trim()) return;
-
     const rect = event.currentTarget.getBoundingClientRect();
-    setPreview({
-      char: previewChar,
-      top: rect.top,
-      left: rect.left + rect.width / 2,
-      isEmoji: unicodeEmoji !== null,
-    });
+    setPreview({ char: previewChar, top: rect.top, left: rect.left + rect.width / 2, isEmoji: unicodeEmoji !== null });
   };
 
   return (
@@ -280,9 +262,7 @@ const App: React.FC = () => {
             className={`p-2 rounded-lg transition-all shadow-sm flex items-center gap-2 ${inputMode === 'text' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'}`}
           >
             <span className="text-lg">⌨️</span>
-            <span className="hidden md:inline text-xs font-bold uppercase tracking-wider">
-              {inputMode === 'text' ? 'Native ON' : 'Native OFF'}
-            </span>
+            <span className="hidden md:inline text-xs font-bold uppercase tracking-wider">Native Keyboard: {inputMode === 'text' ? 'ON' : 'OFF'}</span>
           </button>
         </div>
         
@@ -290,9 +270,10 @@ const App: React.FC = () => {
           id="text-input"
           ref={textAreaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={handleInputChange}
           onBeforeInput={handleBeforeInput}
           inputMode={inputMode as any}
+          autoCorrect="off" autoCapitalize="off" spellCheck="false"
           className="w-full bg-white rounded-lg shadow-inner mb-4 warang-citi-text"
           placeholder="Start typing in Ho..."
         />
