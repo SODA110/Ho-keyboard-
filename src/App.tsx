@@ -23,6 +23,49 @@ const App: React.FC = () => {
   const baseLayout = keyboardMode === 'warang' ? keyboardLayout : englishKeyboardLayout;
   const currentLayout = keyboardView === 'special' ? specialCharsLayout : baseLayout;
 
+  const updateText = useCallback((operation: 'insert' | 'delete', value: string = '') => {
+    const textarea = textAreaRef.current;
+    if (!textarea) {
+      if (operation === 'insert') setText(prev => prev + value);
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const currentText = textarea.value;
+
+    let newText = '';
+    let newCursorPos = start;
+
+    if (operation === 'insert') {
+      newText = currentText.substring(0, start) + value + currentText.substring(end);
+      newCursorPos = start + value.length;
+    } else if (operation === 'delete') {
+      if (start !== end) {
+        newText = currentText.substring(0, start) + currentText.substring(end);
+        newCursorPos = start;
+      } else {
+        if (start === 0) return;
+        
+        const charBefore = currentText.charCodeAt(start - 1);
+        const isLowSurrogate = charBefore >= 0xDC00 && charBefore <= 0xDFFF;
+        const deleteCount = isLowSurrogate ? 2 : 1;
+        
+        newText = currentText.substring(0, start - deleteCount) + currentText.substring(end);
+        newCursorPos = start - deleteCount;
+      }
+    }
+
+    setText(newText);
+    
+    requestAnimationFrame(() => {
+      if (textAreaRef.current) {
+        textAreaRef.current.focus();
+        textAreaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+      }
+    });
+  }, []);
+
   const handleKeyPress = useCallback((key: KeyData) => {
     if (!key || !key.key) return;
 
@@ -31,11 +74,7 @@ const App: React.FC = () => {
     switch (key.code) {
       case 'Backspace':
       case 'Delete':
-        setText((prev) => {
-          const charArray = Array.from(prev);
-          charArray.pop();
-          return charArray.join('');
-        });
+        updateText('delete');
         break;
       case 'CapsLock':
         if (keyboardView === 'special') {
@@ -50,16 +89,16 @@ const App: React.FC = () => {
         setIsShiftOn((prev) => !prev);
         break;
       case 'Space':
-        setText((prev) => prev + ' ');
+        updateText('insert', ' ');
         break;
       case 'Enter':
-        setText((prev) => prev + '\n');
+        updateText('insert', '\n');
         break;
       case 'Tab':
-        setText((prev) => prev + '\t');
+        updateText('insert', '\t');
         break;
       case 'VirtualPeriod':
-        setText((prev) => prev + (isCapsLockOn ? key.shiftKey : key.key));
+        updateText('insert', isCapsLockOn ? key.shiftKey : key.key);
         break;
       case 'Emoji':
         setKeyboardView(prev => {
@@ -101,7 +140,7 @@ const App: React.FC = () => {
           }
         }
         
-        setText((prev) => prev + charToInsert);
+        updateText('insert', charToInsert);
 
         const isPhysicalShiftHeld = pressedKeys.has('ShiftLeft') || pressedKeys.has('ShiftRight');
         if (isShiftOn && !isPhysicalShiftHeld && keyboardView !== 'special') {
@@ -109,12 +148,17 @@ const App: React.FC = () => {
         }
         break;
     }
-  }, [isShiftOn, isCapsLockOn, pressedKeys, keyboardView]);
+  }, [isShiftOn, isCapsLockOn, pressedKeys, keyboardView, updateText]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isTextInputFocused = document.activeElement === textAreaRef.current;
       
+      // Allow standard shortcuts (Ctrl+A, Ctrl+C, Ctrl+V, etc.)
+      if (e.ctrlKey || e.metaKey) {
+        return; 
+      }
+
       if(e.code === 'Backspace'){ // Always allow backspace
             e.preventDefault();
             handleKeyPress({ key: '⌫', shiftKey: '⌫', code: 'Backspace' });
@@ -347,7 +391,7 @@ const App: React.FC = () => {
                       if (isSpaceKey && ignoreSpacebarClick.current) return;
                       
                       if (isEmojiModeActive && unicodeEmoji) {
-                        setText(prev => prev + unicodeEmoji);
+                        updateText('insert', unicodeEmoji);
                       } else {
                         handleKeyPress(key);
                       }
