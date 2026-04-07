@@ -1,0 +1,5 @@
+{
+  "name": "Warang Citi Virtual Keyboard",
+  "description": "An interactive virtual keyboard for typing in the Warang Citi script. This tool features a modern, responsive design and supports both on-screen clicks and physical keyboard input, with visual feedback for pressed keys. It includes support for shift and caps lock functionalities.",
+  "requestFramePermissions": []
+}
