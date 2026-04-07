@@ -24,29 +24,29 @@ const App: React.FC = () => {
   const baseLayout = keyboardMode === 'warang' ? keyboardLayout : englishKeyboardLayout;
   const currentLayout = keyboardView === 'special' ? specialCharsLayout : baseLayout;
 
-  // Create a robust map for English -> Ho conversion
+  // Comprehensive English -> Ho map for absolute reliability
   const charMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    const flatHo = keyboardLayout.flat();
-    const flatEng = englishKeyboardLayout.flat();
-    
-    flatHo.forEach(hoKey => {
-      const engKey = flatEng.find(k => k.code === hoKey.code);
-      if (engKey) {
-        if (engKey.key && hoKey.key) map[engKey.key] = hoKey.key;
-        if (engKey.shiftKey && hoKey.shiftKey) map[engKey.shiftKey] = hoKey.shiftKey;
-      }
-    });
-    // Common punctuation
-    map['.'] = '𑣿';
+    const map: Record<string, string> = {
+      'q': '𑢠', 'w': '𑢢', 'e': '𑢨', 'r': '𑢼', 't': '𑢵', 'y': '𑢣', 'u': '𑢧', 'i': '𑢦', 'o': '𑢩', 'p': '𑢸',
+      'a': '𑢡', 's': '𑢾', 'd': '𑢴', 'f': '𑢫', 'g': '𑢰', 'h': '𑢳', 'j': '𑢮', 'k': '𑢬', 'l': '𑢺',
+      'z': '𑢽', 'x': '𑢭', 'c': '𑢯', 'v': '𑢿', 'b': '𑢷', 'n': '𑢱', 'm': '𑢶',
+      'Q': '𑣀', 'W': '𑣂', 'E': '𑣈', 'R': '𑣜', 'T': '𑣕', 'Y': '𑣃', 'U': '𑣇', 'I': '𑣆', 'O': '𑣉', 'P': '𑣘',
+      'A': '𑣁', 'S': '𑣞', 'D': '𑣔', 'F': '𑣋', 'G': '𑣐', 'H': '𑣓', 'J': '𑣎', 'K': '𑣌', 'L': '𑣚',
+      'Z': '𑣝', 'X': '𑣍', 'C': '𑣏', 'V': '𑣟', 'B': '𑣗', 'N': '𑣑', 'M': '𑣖',
+      '[': '𑢤', ']': '𑢥', '{': '𑣄', '}': '𑣅', ';': '𑢪', ':': '𑣊', "'": '𑢲', '"': '𑣒',
+      ',': '𑢹', '<': '𑢹', '.': '𑢻', '>': '𑢻', '/': '𑣛', '?': '𑣛',
+      '1': '𑣡', '2': '𑣢', '3': '𑣣', '4': '𑣤', '5': '𑣥', '6': '𑣦', '7': '𑣧', '8': '𑣨', '9': '𑣩', '0': '𑣠',
+      '!': '𑣪', '@': '𑣫', '#': '𑣬', '$': '𑣭', '%': '𑣮', '^': '𑣯', '&': '𑣰', '*': '𑣱', '(': '𑣲', ')': '𑣠',
+      '`': '𑣿', '~': '𑣿'
+    };
     return map;
   }, []);
 
-  // Helper to transform any string to Ho based on current mode
   const transformToHo = useCallback((input: string) => {
     if (keyboardMode !== 'warang' || keyboardView !== 'text') return input;
     let result = '';
-    for (const char of input) {
+    // Use Array.from to correctly iterate over surrogate pairs if they exist
+    for (const char of Array.from(input)) {
       result += charMap[char] || char;
     }
     return result;
@@ -151,34 +151,60 @@ const App: React.FC = () => {
     }
   }, [isShiftOn, isCapsLockOn, pressedKeys, keyboardView, updateText]);
 
-  // Aggressive interceptor for mobile native keyboard
-  const handleBeforeInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
-    const inputEvent = e.nativeEvent as InputEvent;
-    if (keyboardMode !== 'warang' || keyboardView !== 'text') return;
-
-    if (inputEvent.data && (inputEvent.inputType === 'insertText' || inputEvent.inputType === 'insertCompositionText')) {
-      e.preventDefault();
-      updateText('insert', inputEvent.data);
+  // Aggressive sanitization for the text state
+  useEffect(() => {
+    if (keyboardMode === 'warang' && keyboardView === 'text') {
+      const transformed = transformToHo(text);
+      if (transformed !== text) {
+        // We need to preserve cursor position if this was triggered by an input change
+        const textarea = textAreaRef.current;
+        if (textarea) {
+          const start = textarea.selectionStart || 0;
+          const end = textarea.selectionEnd || 0;
+          // Estimate new position (this is tricky with surrogate pairs)
+          // For simplicity, we'll just set the text and let the onChange handle the cursor if possible
+          setText(transformed);
+        } else {
+          setText(transformed);
+        }
+      }
     }
-  }, [keyboardMode, keyboardView, updateText]);
+  }, [text, keyboardMode, keyboardView, transformToHo]);
 
-  // Safety Net: If any English characters leak in, convert them immediately
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     if (keyboardMode === 'warang' && keyboardView === 'text') {
       const transformed = transformToHo(val);
       if (transformed !== val) {
-        const start = e.target.selectionStart;
-        const end = e.target.selectionEnd;
+        const start = e.target.selectionStart || 0;
+        const end = e.target.selectionEnd || 0;
+        // Calculate the difference in length to adjust cursor
+        const diff = transformed.length - val.length;
+        const newStart = start + diff;
+        const newEnd = end + diff;
+        
         setText(transformed);
         setTimeout(() => {
-          if (textAreaRef.current) textAreaRef.current.setSelectionRange(start, end);
+          if (textAreaRef.current) {
+            textAreaRef.current.setSelectionRange(newStart, newEnd);
+          }
         }, 0);
         return;
       }
     }
     setText(val);
   };
+
+  const handleBeforeInput = useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
+    const inputEvent = e.nativeEvent as InputEvent;
+    if (keyboardMode !== 'warang' || keyboardView !== 'text') return;
+
+    // Intercept almost all text insertion types
+    if (inputEvent.data && (inputEvent.inputType === 'insertText' || inputEvent.inputType === 'insertCompositionText')) {
+      e.preventDefault();
+      updateText('insert', inputEvent.data);
+    }
+  }, [keyboardMode, keyboardView, updateText]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -193,7 +219,12 @@ const App: React.FC = () => {
 
       const keyData = currentLayout.flat().find((k) => k.code === e.code);
       
-      // On desktop, prevent default to avoid English letters appearing before transformation
+      if (e.code === 'CapsLock') {
+        e.preventDefault();
+        handleKeyPress(keyData);
+        return;
+      }
+
       if (isTextInputFocused && e.code && !['ShiftLeft', 'ShiftRight', 'CapsLock', 'Tab', 'Space', 'Enter'].includes(e.code)) {
         if (keyboardMode === 'warang' && keyboardView === 'text') {
           e.preventDefault();
@@ -224,6 +255,36 @@ const App: React.FC = () => {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [handleKeyPress, currentLayout, keyboardMode, keyboardView]);
+
+  const handleEmojiPressStart = () => {
+    ignoreClick.current = false;
+    longPressTimer.current = setTimeout(() => {
+        setDarkMode(prev => !prev);
+        ignoreClick.current = true;
+    }, 2000);
+  };
+
+  const handleEmojiPressEnd = () => {
+    if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+    }
+  };
+
+  const handleSpacebarPressStart = () => {
+    ignoreSpacebarClick.current = false;
+    spacebarLongPressTimer.current = setTimeout(() => {
+        setKeyboardMode(prev => (prev === 'warang' ? 'english' : 'warang'));
+        ignoreSpacebarClick.current = true;
+    }, 2000);
+  };
+
+  const handleSpacebarPressEnd = () => {
+      if (spacebarLongPressTimer.current) {
+          clearTimeout(spacebarLongPressTimer.current);
+          spacebarLongPressTimer.current = null;
+      }
+  };
 
   const handleShowPreview = (key: KeyData, event: any) => {
     if (key.isFnKey || key.code === 'Space') return;
@@ -259,10 +320,10 @@ const App: React.FC = () => {
           <p className="text-gray-600 text-sm md:text-base">Type using your keyboard or click the keys below.</p>
           <button 
             onClick={() => setInputMode(prev => prev === 'text' ? 'none' : 'text')}
-            className={`p-2 rounded-lg transition-all shadow-sm flex items-center gap-2 ${inputMode === 'text' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'}`}
+            className={`p-2 rounded-lg transition-all shadow-sm flex items-center justify-center ${inputMode === 'text' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-600'}`}
+            style={{ width: '44px', height: '44px' }}
           >
-            <span className="text-lg">⌨️</span>
-            <span className="hidden md:inline text-xs font-bold uppercase tracking-wider">Native Keyboard: {inputMode === 'text' ? 'ON' : 'OFF'}</span>
+            <span className="text-2xl">⌨️</span>
           </button>
         </div>
         
